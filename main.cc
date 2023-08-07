@@ -3,15 +3,58 @@
 #include "itkGDCMImageIO.h"
 #include "itkMetaDataObject.h"
 
+#include <json/json.h>
+#include <json/value.h>
+
+#include <iostream>
+#include <fstream>
+#include <string>
 #include <map>
+
 
 int main(int argc, char **argv)
 {
-    if(argc < 2)
+    if(argc < 3)
     {
-        std::cout << "Usage " << argv[0] << "filename\n";
+        std::cout << "Usage " << argv[0] << "filename tagkeyfile\n";
         return -1;
     }
+
+
+    Json::Value root;
+    Json::Reader jsonReader;
+
+    std::ifstream in(argv[2]);
+
+    if(!in)
+    {
+        std::string errReason("Cannot open the file");
+        errReason += argv[2];
+        
+        throw std::domain_error(errReason);
+    }
+
+    bool parsingSuccessful = jsonReader.parse(in, root);
+
+    if(!parsingSuccessful)
+    {
+        std::cout << "Error parsing the string\n";
+        return -1;
+    }
+
+
+    using Map = std::map <std::string, std::string>;
+    Map map_;
+
+    Json::Value::Members names = root.getMemberNames();
+    for(size_t index = 0; index < names.size(); ++index)
+    {
+        std::string key = names[index];
+        std::string value = root[key].asString();
+        map_.insert(make_pair(key, value));
+    }
+     
+
 
     using PixelType = signed short;
     constexpr unsigned int Dimension = 2;
@@ -59,10 +102,9 @@ int main(int argc, char **argv)
         0010|0010 = Patient's Name          - John Doe
         0010|0020 = Patient's Id            - Ask from user (001234)
 
-
-
     */
 
+    /*
     using Map = std::map <std::string, std::string>;
     Map tag_valueMap;
     tag_valueMap.insert(std::pair<std::string, std::string>("0008|0080", "Institution"));
@@ -71,9 +113,10 @@ int main(int argc, char **argv)
     tag_valueMap.insert(std::pair<std::string, std::string>("0008|1070", "Operator"));
     tag_valueMap.insert(std::pair<std::string, std::string>("0010|0010", "John Doe"));
     tag_valueMap.insert(std::pair<std::string, std::string>("0010|0020", "000001"));
+    */
     
-    Map::iterator itr = tag_valueMap.begin();
-    Map::iterator end = tag_valueMap.end();
+    Map::iterator itr = map_.begin();
+    Map::iterator end = map_.end();
 
     while(itr != end)
     {
