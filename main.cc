@@ -10,6 +10,9 @@
 #include <fstream>
 #include <string>
 #include <map>
+#include <filesystem>       // c++17
+namespace fs = std::filesystem;
+
 
 
 int main(int argc, char **argv)
@@ -19,6 +22,24 @@ int main(int argc, char **argv)
         std::cout << "Usage " << argv[0] << "filename tagkeyfile\n";
         return -1;
     }
+
+    const std::string pathString = argv[1];
+    const fs::path path(pathString);
+
+    std::error_code ec;
+    if(fs::is_directory(path, ec))
+    {
+        std::cout << "Processing dicom series\n";
+    }
+    if(fs::is_regular_file(path, ec))
+    {
+        std::cout << "Processing dicom\n";
+    }
+    if(ec)
+    {
+        std::cerr << "Error in " << argv[1] << "\n" << ec.message();
+    }
+
 
 
     Json::Value root;
