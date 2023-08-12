@@ -14,12 +14,46 @@
 namespace fs = std::filesystem;
 
 
+using Map = std::map <std::string, std::string>;
+
+std::map<std::string, std::string> jsonToMap(std::string filename)
+{
+    Json::Value root;
+    Json::Reader jsonReader;
+
+    std::ifstream in(filename);
+    if(!in)
+    {
+        std::string errReason("Cannot open the file ");
+        errReason += filename;
+        throw std::runtime_error(errReason);
+    }
+
+    bool parsingSuccessful = jsonReader.parse(in, root);
+    if(!parsingSuccessful)
+    {
+        std::string errReason("Error parsing the string\n");
+        throw std::runtime_error(errReason);
+    }
+
+    Map map_;
+
+    Json::Value::Members names = root.getMemberNames();
+    for(size_t index = 0; index < names.size(); ++index)
+    {
+        std::string key = names[index];
+        std::string value = root[key].asString();
+        map_.insert(make_pair(key, value));
+    }
+
+    return map_;
+}
 
 int main(int argc, char **argv)
 {
     if(argc < 3)
     {
-        std::cout << "Usage " << argv[0] << "filename tagkeyfile\n";
+        std::cout << "Usage " << argv[0] << " dicomfilename tagkeyfile\n";
         return -1;
     }
 
@@ -40,42 +74,16 @@ int main(int argc, char **argv)
         std::cerr << "Error in " << argv[1] << "\n" << ec.message();
     }
 
-
-
-    Json::Value root;
-    Json::Reader jsonReader;
-
-    std::ifstream in(argv[2]);
-
-    if(!in)
+    Map map_; 
+    try
     {
-        std::string errReason("Cannot open the file");
-        errReason += argv[2];
-        
-        throw std::domain_error(errReason);
+        map_ = jsonToMap(argv[2]);
     }
-
-    bool parsingSuccessful = jsonReader.parse(in, root);
-
-    if(!parsingSuccessful)
+    catch(const std::exception& ex)
     {
-        std::cout << "Error parsing the string\n";
-        return -1;
+        std::cerr << ex.what() << "\n";
+        return -2;
     }
-
-
-    using Map = std::map <std::string, std::string>;
-    Map map_;
-
-    Json::Value::Members names = root.getMemberNames();
-    for(size_t index = 0; index < names.size(); ++index)
-    {
-        std::string key = names[index];
-        std::string value = root[key].asString();
-        map_.insert(make_pair(key, value));
-    }
-     
-
 
     using PixelType = signed short;
     constexpr unsigned int Dimension = 2;
