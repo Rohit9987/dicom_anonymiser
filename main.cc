@@ -3,6 +3,10 @@
 #include "itkGDCMImageIO.h"
 #include "itkMetaDataObject.h"
 
+#include "itkImageSeriesReader.h"
+#include "itkImageSeriesWriter.h"
+#include "itkGDCMSeriesFileNames.h"
+
 #include <json/json.h>
 #include <json/value.h>
 
@@ -49,29 +53,68 @@ std::map<std::string, std::string> jsonToMap(std::string filename)
     return map_;
 }
 
+int seriesAnonymiser(const char* inputDirectory)
+{
+    using PixelType = signed short;
+    constexpr unsigned int Dimension = 3;
+    using ImageType = itk::Image<PixelType, Dimension>;
+    using ReaderType = itk::ImageSeriesReader<ImageType>;
+
+    using ImageIOType = itk::GDCMImageIO;
+    ImageIOType::Pointer gdcmIO = ImageIOType::New();
+
+    using NamesGeneratorType = itk::GDCMSeriesFileNames;
+    auto namesGenerator = NamesGeneratorType::New();
+    namesGenerator->SetInputDirectory(inputDirectory);
+    const ReaderType::FileNamesContainer& filenames = namesGenerator->GetInputFileNames();
+    
+    ReaderType::Pointer reader = ReaderType::New();
+    reader->SetImageIO(gdcmIO);
+    reader->SetFileNames(filenames);
+
+    try{ reader->Update();}
+    catch(itk::ExceptionObject& ex) { std::cerr << ex << '\n'; return -1; }
+
+    std::string datetime = itksys::SystemTools::GetCurrentDateTime("%d_%b_%Y_%H_%M_%S"); 
+    std::string outputDirectory = "./output_" + datetime;
+    itksys::SystemTools::MakeDirectory(outputDirectory);
+    
+    constexpr unsigned int OutputDimension = 2;
+    using Image2DType = itk::Image<PixelType, OutputDimension>;
+    using SeriesWriterType = itk::ImageSeriesWriter<ImageType, Image2DType>;
+
+    SeriesWriterType::Pointer seriesWriter = SeriesWriterType::New();
+    seriesWriter->SetInput(reader->GetOutput());
+    seriesWriter->SetImageIO(gdcmIO);
+    
+    namesGenerator->SetOutputDirectory(outputDirectory);
+    seriesWriter->SetFileNames(namesGenerator->GetOutputFileNames());
+    seriesWriter->SetMetaDataDictionaryArray(reader->GetMetaDataDictionaryArray());
+    
+    try { seriesWriter->Update();}
+    catch(itk::ExceptionObject& ex) { std::cerr << ex << '\n'; return -1; }
+
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     if(argc < 3)
     {
-        std::cout << "Usage " << argv[0] << " dicomfilename tagkeyfile\n";
+        std::cout << "Usage: " << argv[0] << " dicomfilename tagkeyfile\n";
         return -1;
     }
 
-    const std::string pathString = argv[1];
-    const fs::path path(pathString);
 
-    std::error_code ec;
-    if(fs::is_directory(path, ec))
+    if(itksys::SystemTools::FileIsDirectory(argv[1]))
     {
         std::cout << "Processing dicom series\n";
+        seriesAnonymiser(argv[1]);
+        return 0;
     }
-    if(fs::is_regular_file(path, ec))
+    else 
     {
         std::cout << "Processing dicom\n";
-    }
-    if(ec)
-    {
-        std::cerr << "Error in " << argv[1] << "\n" << ec.message();
     }
 
     Map map_; 
@@ -116,34 +159,6 @@ int main(int argc, char **argv)
     //DictionaryType& dictionary = dicomIO->GetMetaDataDictionary();
     DictionaryType& dictionary = inputImage->GetMetaDataDictionary();
 
-
-    /*
-        tagkey = 0010|0020
-        labelId = Patient's Name
-        tagvalue = actual name
-
-        0008|0080 = Institution Name        - leave blank
-        0008|0081 = Institution Address     - leave blank
-
-        0008|1048 = Physician(s) of Record  - leave blank
-        0008|1070 = Operator's Name         - leave blank
-        
-        0010|0010 = Patient's Name          - John Doe
-        0010|0020 = Patient's Id            - Ask from user (001234)
-
-    */
-
-    /*
-    using Map = std::map <std::string, std::string>;
-    Map tag_valueMap;
-    tag_valueMap.insert(std::pair<std::string, std::string>("0008|0080", "Institution"));
-    tag_valueMap.insert(std::pair<std::string, std::string>("0008|0081", "Institution Address"));
-    tag_valueMap.insert(std::pair<std::string, std::string>("0008|1048", "Dr. John"));
-    tag_valueMap.insert(std::pair<std::string, std::string>("0008|1070", "Operator"));
-    tag_valueMap.insert(std::pair<std::string, std::string>("0010|0010", "John Doe"));
-    tag_valueMap.insert(std::pair<std::string, std::string>("0010|0020", "000001"));
-    */
-    
     Map::iterator itr = map_.begin();
     Map::iterator end = map_.end();
 
@@ -152,7 +167,6 @@ int main(int argc, char **argv)
         itk::EncapsulateMetaData<std::string>(dictionary, itr->first, itr->second);
         itr++;
     }
-
 
 
     using WriterType = itk::ImageFileWriter<ImageType>;
