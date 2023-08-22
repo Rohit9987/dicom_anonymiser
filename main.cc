@@ -53,7 +53,48 @@ std::map<std::string, std::string> jsonToMap(std::string filename)
     return map_;
 }
 
-int seriesAnonymiser(const char* inputDirectory)
+void anonymise(Map& map_, itk::MetaDataDictionary& dictionary)
+{
+    Map::iterator itr = map_.begin();
+    Map::iterator end = map_.end();
+
+    while(itr != end)
+    {
+        itk::EncapsulateMetaData<std::string>(dictionary, itr->first, itr->second);
+        itr++;
+    }
+}
+
+void printDict(itk::MetaDataDictionary& dictionary)
+{
+    using MetaDataStringType = itk::MetaDataObject<std::string>;
+    auto itr = dictionary.Begin();
+    auto end = dictionary.End();
+
+    while(itr != end)
+    {
+        itk::MetaDataObjectBase::Pointer entry = itr->second;
+        
+        MetaDataStringType::Pointer entryvalue = dynamic_cast<MetaDataStringType*> (entry.GetPointer());
+
+        if(entryvalue)
+        {
+            std::string tagkey = itr->first;
+            std::string labelId;
+            bool found = itk::GDCMImageIO::GetLabelFromTag(tagkey, labelId);
+            std::string tagvalue = entryvalue->GetMetaDataObjectValue();
+
+            if(found)
+            {
+                std::cout << "(" << tagkey << ") " << labelId << " = " << tagvalue.c_str() << "\n";
+            }
+
+        }
+        ++itr;
+    }
+}
+
+int seriesAnonymiser(const char* inputDirectory, Map map_)
 {
     using PixelType = signed short;
     constexpr unsigned int Dimension = 3;
@@ -86,10 +127,20 @@ int seriesAnonymiser(const char* inputDirectory)
     SeriesWriterType::Pointer seriesWriter = SeriesWriterType::New();
     seriesWriter->SetInput(reader->GetOutput());
     seriesWriter->SetImageIO(gdcmIO);
-    
+
+    using DictionaryType = itk::MetaDataDictionary;
+    DictionaryType& dictionary = gdcmIO->GetMetaDataDictionary();
+
+    printDict(dictionary);
+    std::cout << "AnonymizeDict\n"; 
+    anonymise(map_, dictionary);
+
+    // TODO: delete later
+    printDict(dictionary);
+     
     namesGenerator->SetOutputDirectory(outputDirectory);
     seriesWriter->SetFileNames(namesGenerator->GetOutputFileNames());
-    seriesWriter->SetMetaDataDictionaryArray(reader->GetMetaDataDictionaryArray());
+   // seriesWriter->SetMetaDataDictionary(dictionary);
     
     try { seriesWriter->Update();}
     catch(itk::ExceptionObject& ex) { std::cerr << ex << '\n'; return -1; }
@@ -97,40 +148,12 @@ int seriesAnonymiser(const char* inputDirectory)
     return 0;
 }
 
-int main(int argc, char **argv)
+
+int dicomAnonymiser(const char* inputFilename, Map& map_)
 {
-    if(argc < 3)
-    {
-        std::cout << "Usage: " << argv[0] << " dicomfilename tagkeyfile\n";
-        return -1;
-    }
-
-
-    if(itksys::SystemTools::FileIsDirectory(argv[1]))
-    {
-        std::cout << "Processing dicom series\n";
-        seriesAnonymiser(argv[1]);
-        return 0;
-    }
-    else 
-    {
-        std::cout << "Processing dicom\n";
-    }
-
-    Map map_; 
-    try
-    {
-        map_ = jsonToMap(argv[2]);
-    }
-    catch(const std::exception& ex)
-    {
-        std::cerr << ex.what() << "\n";
-        return -2;
-    }
 
     using PixelType = signed short;
     constexpr unsigned int Dimension = 2;
-
     using ImageType = itk::Image<PixelType, Dimension>;
     
     using ReaderType = itk::ImageFileReader<ImageType>;
@@ -138,36 +161,20 @@ int main(int argc, char **argv)
 
     using ImageIOType = itk::GDCMImageIO;
     ImageIOType::Pointer dicomIO = ImageIOType::New();
-    reader->SetFileName(argv[1]);
+    reader->SetFileName(inputFilename);
     reader->SetImageIO(dicomIO);
 
     try
-    {
-        reader->Update();
-    }
-    catch(itk::ExceptionObject& ex)
-    {
-        std::cerr << ex <<std::endl;
-        return -2;
-    }
-
+    { reader->Update();}
+    catch(itk::ExceptionObject& ex) { std::cerr << ex <<std::endl; return -1; }
 
     ImageType::Pointer inputImage = reader->GetOutput();
     using MetaDataStringType = itk::MetaDataObject<std::string>;
 
     using DictionaryType = itk::MetaDataDictionary;
-    //DictionaryType& dictionary = dicomIO->GetMetaDataDictionary();
     DictionaryType& dictionary = inputImage->GetMetaDataDictionary();
 
-    Map::iterator itr = map_.begin();
-    Map::iterator end = map_.end();
-
-    while(itr != end)
-    {
-        itk::EncapsulateMetaData<std::string>(dictionary, itr->first, itr->second);
-        itr++;
-    }
-
+    anonymise(map_, dictionary);
 
     using WriterType = itk::ImageFileWriter<ImageType>;
     WriterType::Pointer writer = WriterType::New();
@@ -184,6 +191,38 @@ int main(int argc, char **argv)
     {
         std::cerr << ex <<std::endl;
         return -3;
+    }
+}
+
+int main(int argc, char **argv)
+{
+    if(argc < 3)
+    {
+        std::cout << "Usage: " << argv[0] << " dicomfilename(foldername) tagkeyfile\n";
+        return -1;
+    }
+
+    Map map_; 
+    try
+    {
+        map_ = jsonToMap(argv[2]);
+    }
+    catch(const std::exception& ex)
+    {
+        std::cerr << ex.what() << "\n";
+        return -2;
+    }
+
+
+    if(itksys::SystemTools::FileIsDirectory(argv[1]))
+    {
+        std::cout << "Processing dicom series\n";
+        seriesAnonymiser(argv[1], map_);
+    }
+    else 
+    {
+        std::cout << "Processing dicom\n";
+        dicomAnonymiser(argv[1], map_);
     }
 
     return 0;
